@@ -54,7 +54,7 @@ function Browser({ onLogout }) {
       }
     }
 
-    const proxyUrl = '/api/proxy?url=' + encodeURIComponent(finalUrl);
+    const proxyUrl = '/proxy/' + finalUrl;
     let title = finalUrl;
     try {
       title = new URL(finalUrl).hostname;
