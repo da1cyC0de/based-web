@@ -135,10 +135,10 @@ async function startPageScreencast(id) {
   try {
     await entry.cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 65,
+      quality: 50,
       maxWidth: VIEW_WIDTH,
       maxHeight: VIEW_HEIGHT,
-      everyNthFrame: 1,
+      everyNthFrame: 2,
     });
   } catch (err) {
     console.error('Screencast start error:', err.message);
@@ -281,27 +281,23 @@ async function handleClientMessage(msg) {
     }
 
     case 'click': {
-      try { await page.mouse.click(msg.x, msg.y, { button: msg.button === 2 ? 'right' : 'left' }); } catch {}
+      try {
+        await page.mouse.move(msg.x, msg.y);
+        await page.mouse.click(msg.x, msg.y, { button: msg.button === 2 ? 'right' : 'left', delay: 50 });
+      } catch {}
       break;
     }
 
     case 'dblclick': {
-      try { await page.mouse.click(msg.x, msg.y, { clickCount: 2 }); } catch {}
+      try {
+        await page.mouse.move(msg.x, msg.y);
+        await page.mouse.click(msg.x, msg.y, { clickCount: 2, delay: 50 });
+      } catch {}
       break;
     }
 
     case 'mousemove': {
       try { await page.mouse.move(msg.x, msg.y); } catch {}
-      break;
-    }
-
-    case 'mousedown': {
-      try { await page.mouse.down({ button: msg.button === 2 ? 'right' : 'left' }); } catch {}
-      break;
-    }
-
-    case 'mouseup': {
-      try { await page.mouse.up({ button: msg.button === 2 ? 'right' : 'left' }); } catch {}
       break;
     }
 

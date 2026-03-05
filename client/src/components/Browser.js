@@ -100,7 +100,6 @@ function Browser({ onLogout }) {
     const el = viewRef.current;
     if (!el) return { x: 0, y: 0 };
     const rect = el.getBoundingClientRect();
-    // Canvas internal size vs displayed size
     const canvas = canvasRef.current;
     const cw = canvas ? canvas.width : rect.width;
     const ch = canvas ? canvas.height : rect.height;
@@ -112,30 +111,28 @@ function Browser({ onLogout }) {
     };
   };
 
-  // Only send mousedown/mouseup — no separate click (avoids double events)
-  const handlePointerDown = (e) => {
+  // Simple click — just send click event with coordinates
+  const handleClick = (e) => {
     e.preventDefault();
-    // Focus the overlay so keyboard works
     if (overlayRef.current) overlayRef.current.focus();
     const { x, y } = getCoords(e);
-    send({ type: 'mousedown', x, y, button: e.button });
-  };
-
-  const handlePointerUp = (e) => {
-    e.preventDefault();
-    const { x, y } = getCoords(e);
-    send({ type: 'mouseup', x, y, button: e.button });
-  };
-
-  const handlePointerMove = (e) => {
-    const { x, y } = getCoords(e);
-    send({ type: 'mousemove', x, y });
+    send({ type: 'click', x, y, button: e.button });
   };
 
   const handleDblClick = (e) => {
     e.preventDefault();
     const { x, y } = getCoords(e);
     send({ type: 'dblclick', x, y });
+  };
+
+  // Throttled mousemove — max 15 per second to reduce lag
+  const lastMoveRef = useRef(0);
+  const handlePointerMove = (e) => {
+    const now = Date.now();
+    if (now - lastMoveRef.current < 66) return; // ~15fps
+    lastMoveRef.current = now;
+    const { x, y } = getCoords(e);
+    send({ type: 'mousemove', x, y });
   };
 
   const handleWheel = (e) => {
@@ -149,7 +146,7 @@ function Browser({ onLogout }) {
     send({ type: 'click', x, y, button: 2 });
   };
 
-  // Keyboard — capture on the transparent overlay
+  // Keyboard
   const handleKeyDown = (e) => {
     if (e.target.classList.contains('url-input')) return;
     e.preventDefault();
@@ -293,15 +290,13 @@ function Browser({ onLogout }) {
               ref={overlayRef}
               className="input-overlay"
               tabIndex={0}
-              onMouseDown={handlePointerDown}
-              onMouseUp={handlePointerUp}
+              onClick={handleClick}
               onMouseMove={handlePointerMove}
               onDoubleClick={handleDblClick}
               onWheel={handleWheel}
               onContextMenu={handleContextMenu}
               onKeyDown={handleKeyDown}
               onKeyUp={handleKeyUp}
-              onClick={focusOverlay}
             />
           </>
         )}
