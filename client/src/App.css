@@ -369,6 +369,32 @@
   background: #fff;
 }
 
+.browser-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: default;
+  object-fit: contain;
+  background: #fff;
+}
+
+.hidden-input {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.connection-status {
+  font-size: 11px;
+  color: var(--yellow);
+  margin-left: auto;
+  padding-right: 8px;
+  flex-shrink: 0;
+}
+
 /* ===== Home Page ===== */
 .home-page {
   height: 100%;
