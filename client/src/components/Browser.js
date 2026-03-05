@@ -1,23 +1,22 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-const QUICK_LINKS = [
-  { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: '💬', color: '#25D366' },
-  { name: 'Telegram', url: 'https://web.telegram.org', icon: '✈️', color: '#0088cc' },
-  { name: 'Instagram', url: 'https://www.instagram.com', icon: '📷', color: '#E4405F' },
-  { name: 'YouTube', url: 'https://www.youtube.com', icon: '▶️', color: '#FF0000' },
-  { name: 'Twitter / X', url: 'https://x.com', icon: '𝕏', color: '#000000' },
-  { name: 'Facebook', url: 'https://www.facebook.com', icon: '👤', color: '#1877F2' },
-  { name: 'Gmail', url: 'https://mail.google.com', icon: '✉️', color: '#EA4335' },
-  { name: 'Google', url: 'https://www.google.com', icon: '🔍', color: '#4285F4' },
-  { name: 'GitHub', url: 'https://github.com', icon: '🐙', color: '#333333' },
-  { name: 'Reddit', url: 'https://www.reddit.com', icon: '🤖', color: '#FF4500' },
-  { name: 'Netflix', url: 'https://www.netflix.com', icon: '🎬', color: '#E50914' },
-  { name: 'Discord', url: 'https://discord.com/app', icon: '🎮', color: '#5865F2' },
+const LINKS = [
+  { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: '💬' },
+  { name: 'Telegram', url: 'https://web.telegram.org', icon: '✈️' },
+  { name: 'Instagram', url: 'https://www.instagram.com', icon: '📷' },
+  { name: 'YouTube', url: 'https://www.youtube.com', icon: '▶️' },
+  { name: 'Twitter/X', url: 'https://x.com', icon: '𝕏' },
+  { name: 'Facebook', url: 'https://www.facebook.com', icon: '👤' },
+  { name: 'Gmail', url: 'https://mail.google.com', icon: '✉️' },
+  { name: 'Google', url: 'https://www.google.com', icon: '🔍' },
+  { name: 'GitHub', url: 'https://github.com', icon: '🐙' },
+  { name: 'Reddit', url: 'https://www.reddit.com', icon: '🤖' },
+  { name: 'Netflix', url: 'https://www.netflix.com', icon: '🎬' },
+  { name: 'Discord', url: 'https://discord.com/app', icon: '🎮' },
 ];
 
 function Browser({ onLogout }) {
   const [tabs, setTabs] = useState([]);
-  const [currentUrl, setCurrentUrl] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [connected, setConnected] = useState(false);
   const [frame, setFrame] = useState(null);
@@ -30,274 +29,134 @@ function Browser({ onLogout }) {
   const activeTab = tabs.find(t => t.active);
   const isHome = !activeTab || activeTab.url === 'about:blank' || activeTab.url === '';
 
-  // Send message to server
   const send = useCallback((msg) => {
-    if (wsRef.current && wsRef.current.readyState === 1) {
-      wsRef.current.send(JSON.stringify(msg));
-    }
+    if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(msg));
   }, []);
 
-  // Connect WebSocket
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}`);
     ws.binaryType = 'blob';
     wsRef.current = ws;
-
     ws.onopen = () => setConnected(true);
-    ws.onclose = () => {
-      setConnected(false);
-      setTimeout(() => {
-        if (wsRef.current === ws) window.location.reload();
-      }, 2000);
-    };
-
+    ws.onclose = () => { setConnected(false); setTimeout(() => { if (wsRef.current === ws) window.location.reload(); }, 2000); };
     ws.onmessage = (e) => {
-      // Binary = frame image, Text = JSON control message
       if (e.data instanceof Blob) {
         const url = URL.createObjectURL(e.data);
         setFrame(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
       } else {
         const msg = JSON.parse(e.data);
         if (msg.type === 'tabs') setTabs(msg.tabs);
-        else if (msg.type === 'urlChange') { setCurrentUrl(msg.url || ''); setUrlInput(msg.url || ''); }
+        else if (msg.type === 'urlChange') setUrlInput(msg.url || '');
       }
     };
-
     return () => ws.close();
   }, []);
 
-  // Draw frame on canvas
   useEffect(() => {
     if (!frame || !canvasRef.current) return;
     const img = imgRef.current;
     img.onload = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
+      const c = canvasRef.current;
+      if (!c) return;
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
     };
     img.src = frame;
   }, [frame]);
 
-  // Send viewport size on resize
   useEffect(() => {
-    const handleResize = () => {
+    const onResize = () => {
       if (viewRef.current) {
-        const rect = viewRef.current.getBoundingClientRect();
-        send({ type: 'resize', width: rect.width, height: rect.height });
+        const r = viewRef.current.getBoundingClientRect();
+        send({ type: 'resize', width: r.width, height: r.height });
       }
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, [send, connected]);
 
-  // Get mouse coordinates relative to the browser viewport
   const getCoords = (e) => {
     const el = viewRef.current;
     if (!el) return { x: 0, y: 0 };
     const rect = el.getBoundingClientRect();
-    const canvas = canvasRef.current;
-    const cw = canvas ? canvas.width : rect.width;
-    const ch = canvas ? canvas.height : rect.height;
-    const scaleX = cw / rect.width;
-    const scaleY = ch / rect.height;
-    return {
-      x: Math.round((e.clientX - rect.left) * scaleX),
-      y: Math.round((e.clientY - rect.top) * scaleY),
-    };
+    const c = canvasRef.current;
+    const sx = (c ? c.width : rect.width) / rect.width;
+    const sy = (c ? c.height : rect.height) / rect.height;
+    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
   };
 
-  // Simple click — just send click event with coordinates
-  const handleClick = (e) => {
-    e.preventDefault();
-    if (overlayRef.current) overlayRef.current.focus();
-    const { x, y } = getCoords(e);
-    send({ type: 'click', x, y, button: e.button });
-  };
+  const handleClick = (e) => { e.preventDefault(); overlayRef.current?.focus(); const { x, y } = getCoords(e); send({ type: 'click', x, y, button: e.button }); };
+  const handleDblClick = (e) => { e.preventDefault(); const { x, y } = getCoords(e); send({ type: 'dblclick', x, y }); };
 
-  const handleDblClick = (e) => {
-    e.preventDefault();
-    const { x, y } = getCoords(e);
-    send({ type: 'dblclick', x, y });
-  };
-
-  // Throttled mousemove — max 15 per second to reduce lag
   const lastMoveRef = useRef(0);
-  const handlePointerMove = (e) => {
-    const now = Date.now();
-    if (now - lastMoveRef.current < 66) return; // ~15fps
-    lastMoveRef.current = now;
-    const { x, y } = getCoords(e);
-    send({ type: 'mousemove', x, y });
-  };
+  const handleMove = (e) => { const now = Date.now(); if (now - lastMoveRef.current < 66) return; lastMoveRef.current = now; const { x, y } = getCoords(e); send({ type: 'mousemove', x, y }); };
 
-  const handleWheel = (e) => {
-    e.preventDefault();
-    send({ type: 'scroll', deltaX: e.deltaX, deltaY: e.deltaY });
-  };
+  const handleWheel = (e) => { e.preventDefault(); send({ type: 'scroll', deltaX: e.deltaX, deltaY: e.deltaY }); };
+  const handleCtx = (e) => { e.preventDefault(); const { x, y } = getCoords(e); send({ type: 'click', x, y, button: 2 }); };
 
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    const { x, y } = getCoords(e);
-    send({ type: 'click', x, y, button: 2 });
-  };
-
-  // Keyboard
   const handleKeyDown = (e) => {
     if (e.target.classList.contains('url-input')) return;
     e.preventDefault();
-    e.stopPropagation();
     send({ type: 'keydown', key: e.key, code: e.code });
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      send({ type: 'keypress', key: e.key });
-    }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) send({ type: 'keypress', key: e.key });
   };
+  const handleKeyUp = (e) => { if (e.target.classList.contains('url-input')) return; e.preventDefault(); send({ type: 'keyup', key: e.key, code: e.code }); };
 
-  const handleKeyUp = (e) => {
-    if (e.target.classList.contains('url-input')) return;
-    e.preventDefault();
-    e.stopPropagation();
-    send({ type: 'keyup', key: e.key, code: e.code });
-  };
-
-  // Keep overlay focused when clicking inside browser area
-  const focusOverlay = useCallback(() => {
-    if (overlayRef.current) overlayRef.current.focus();
-  }, []);
-
-  // Navigation
-  const navigateTo = (url) => {
-    send({ type: 'navigate', url });
-    setUrlInput(url);
-  };
-
-  const handleUrlSubmit = (e) => {
-    e.preventDefault();
-    navigateTo(urlInput);
-    if (overlayRef.current) overlayRef.current.focus();
-  };
-
-  const handleLogout = async () => {
-    await fetch('/api/logout', { method: 'POST', credentials: 'include' });
-    onLogout();
-  };
+  const go = (url) => { send({ type: 'navigate', url }); setUrlInput(url); };
+  const handleUrlSubmit = (e) => { e.preventDefault(); go(urlInput); overlayRef.current?.focus(); };
+  const logout = async () => { await fetch('/api/logout', { method: 'POST', credentials: 'include' }); onLogout(); };
 
   return (
-    <div className="browser">
-      {/* Title Bar */}
-      <div className="titlebar">
-        <div className="titlebar-traffic">
-          <span className="traffic-light red" onClick={handleLogout} title="Logout" />
-          <span className="traffic-light yellow" />
-          <span className="traffic-light green" />
-        </div>
-
-        <div className="tabs-container">
-          {tabs.map(tab => (
-            <div
-              key={tab.id}
-              className={`tab ${tab.active ? 'tab-active' : ''}`}
-              onClick={() => send({ type: 'switchTab', id: tab.id })}
-            >
-              <span className="tab-title">{tab.title || 'New Tab'}</span>
-              <span className="tab-close" onClick={(e) => { e.stopPropagation(); send({ type: 'closeTab', id: tab.id }); }}>×</span>
+    <div className="br">
+      {/* Tabs */}
+      <div className="tabs">
+        <div className="tabs-list">
+          {tabs.map(t => (
+            <div key={t.id} className={`t ${t.active ? 'ta' : ''}`} onClick={() => send({ type: 'switchTab', id: t.id })}>
+              <span className="tt">{t.title || 'New Tab'}</span>
+              <span className="tc" onClick={e => { e.stopPropagation(); send({ type: 'closeTab', id: t.id }); }}>×</span>
             </div>
           ))}
-          <button className="tab-add" onClick={() => send({ type: 'newTab' })}>+</button>
+          <button className="t-add" onClick={() => send({ type: 'newTab' })}>+</button>
         </div>
-
-        {!connected && <div className="connection-status">Reconnecting...</div>}
+        {!connected && <span className="offline">Offline</span>}
       </div>
 
       {/* Toolbar */}
-      <div className="toolbar">
-        <div className="nav-buttons">
-          <button className="nav-btn" onClick={() => send({ type: 'goBack' })} title="Back">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-          </button>
-          <button className="nav-btn" onClick={() => send({ type: 'goForward' })} title="Forward">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-          </button>
-          <button className="nav-btn" onClick={() => send({ type: 'refresh' })} title="Refresh">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-          </button>
-          <button className="nav-btn" onClick={() => { send({ type: 'navigate', url: '' }); }} title="Home">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-              <polyline points="9 22 9 12 15 12 15 22"/>
-            </svg>
-          </button>
-        </div>
-
-        <form className="url-bar" onSubmit={handleUrlSubmit}>
-          <div className="url-bar-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-          </div>
-          <input
-            type="text"
-            className="url-input"
-            placeholder="Cari atau masukkan alamat website..."
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onFocus={(e) => e.target.select()}
-          />
+      <div className="bar">
+        <button className="btn" onClick={() => send({ type: 'goBack' })}>←</button>
+        <button className="btn" onClick={() => send({ type: 'goForward' })}>→</button>
+        <button className="btn" onClick={() => send({ type: 'refresh' })}>↻</button>
+        <button className="btn" onClick={() => go('')}>⌂</button>
+        <form className="url" onSubmit={handleUrlSubmit}>
+          <input className="url-input" placeholder="Search or enter URL..." value={urlInput} onChange={e => setUrlInput(e.target.value)} onFocus={e => e.target.select()} />
         </form>
-
-        <button className="nav-btn logout-btn" onClick={handleLogout} title="Logout">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-        </button>
+        <button className="btn btn-out" onClick={logout}>⏻</button>
       </div>
 
-      {/* Browser View */}
-      <div className="browser-content" ref={viewRef}>
+      {/* View */}
+      <div className="view" ref={viewRef}>
         {isHome && !frame ? (
-          <div className="home-page">
-            <h1 className="home-greeting">Selamat Datang 👋</h1>
-            <p className="home-subtitle">Pilih situs atau ketik URL di address bar</p>
-            <div className="quick-links-grid">
-              {QUICK_LINKS.map((link, i) => (
-                <button key={i} className="quick-link-card" onClick={() => navigateTo(link.url)}>
-                  <div className="quick-link-icon" style={{ background: link.color }}>
-                    <span>{link.icon}</span>
-                  </div>
-                  <span className="quick-link-name">{link.name}</span>
+          <div className="home">
+            <h2>Quick Links</h2>
+            <div className="links">
+              {LINKS.map((l, i) => (
+                <button key={i} className="link" onClick={() => go(l.url)}>
+                  <span className="link-ico">{l.icon}</span>
+                  <span className="link-name">{l.name}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
           <>
-            <canvas ref={canvasRef} className="browser-canvas" />
-            {/* Transparent overlay captures all mouse + keyboard input */}
-            <div
-              ref={overlayRef}
-              className="input-overlay"
-              tabIndex={0}
-              onClick={handleClick}
-              onMouseMove={handlePointerMove}
-              onDoubleClick={handleDblClick}
-              onWheel={handleWheel}
-              onContextMenu={handleContextMenu}
-              onKeyDown={handleKeyDown}
-              onKeyUp={handleKeyUp}
-            />
+            <canvas ref={canvasRef} className="cv" />
+            <div ref={overlayRef} className="ov" tabIndex={0}
+              onClick={handleClick} onMouseMove={handleMove} onDoubleClick={handleDblClick}
+              onWheel={handleWheel} onContextMenu={handleCtx} onKeyDown={handleKeyDown} onKeyUp={handleKeyUp} />
           </>
         )}
       </div>
