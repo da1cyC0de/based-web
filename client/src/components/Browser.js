@@ -101,7 +101,6 @@ function Browser({ onLogout }) {
     if (e.target.classList.contains('url-input')) return;
     e.preventDefault();
     send({ type: 'keydown', key: e.key, code: e.code });
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) send({ type: 'keypress', key: e.key });
   };
   const handleKeyUp = (e) => { if (e.target.classList.contains('url-input')) return; e.preventDefault(); send({ type: 'keyup', key: e.key, code: e.code }); };
 

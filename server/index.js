@@ -322,13 +322,6 @@ async function handleClientMessage(msg) {
       break;
     }
 
-    case 'keypress': {
-      try {
-        if (msg.key && msg.key.length === 1) await page.keyboard.sendCharacter(msg.key);
-      } catch {}
-      break;
-    }
-
     case 'newTab': {
       await createNewPage();
       break;
