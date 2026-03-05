@@ -1,0 +1,13 @@
+{
+  "name": "web-browser-vps",
+  "version": "1.0.0",
+  "description": "Web-based browser for VPS with macOS-style UI",
+  "private": true,
+  "scripts": {
+    "dev:client": "cd client && npm start",
+    "dev:server": "cd server && node index.js",
+    "build": "cd client && npm run build",
+    "start": "node server/index.js",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+  }
+}
