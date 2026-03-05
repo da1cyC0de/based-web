@@ -24,7 +24,7 @@ function Browser({ onLogout }) {
   const wsRef = useRef(null);
   const canvasRef = useRef(null);
   const viewRef = useRef(null);
-  const inputRef = useRef(null);
+  const overlayRef = useRef(null);
   const imgRef = useRef(new Image());
 
   const activeTab = tabs.find(t => t.active);
@@ -95,37 +95,41 @@ function Browser({ onLogout }) {
     return () => window.removeEventListener('resize', handleResize);
   }, [send, connected]);
 
-  // Get mouse coordinates relative to the browser view
+  // Get mouse coordinates relative to the browser viewport
   const getCoords = (e) => {
+    const el = viewRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    // Canvas internal size vs displayed size
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const cw = canvas ? canvas.width : rect.width;
+    const ch = canvas ? canvas.height : rect.height;
+    const scaleX = cw / rect.width;
+    const scaleY = ch / rect.height;
     return {
       x: Math.round((e.clientX - rect.left) * scaleX),
       y: Math.round((e.clientY - rect.top) * scaleY),
     };
   };
 
-  const handleMouseDown = (e) => {
+  // Only send mousedown/mouseup — no separate click (avoids double events)
+  const handlePointerDown = (e) => {
     e.preventDefault();
+    // Focus the overlay so keyboard works
+    if (overlayRef.current) overlayRef.current.focus();
     const { x, y } = getCoords(e);
     send({ type: 'mousedown', x, y, button: e.button });
   };
 
-  const handleMouseUp = (e) => {
+  const handlePointerUp = (e) => {
     e.preventDefault();
     const { x, y } = getCoords(e);
     send({ type: 'mouseup', x, y, button: e.button });
   };
 
-  const handleClick = (e) => {
-    e.preventDefault();
+  const handlePointerMove = (e) => {
     const { x, y } = getCoords(e);
-    send({ type: 'click', x, y, button: e.button });
-    // Focus the hidden input to capture keyboard
-    if (inputRef.current) inputRef.current.focus();
+    send({ type: 'mousemove', x, y });
   };
 
   const handleDblClick = (e) => {
@@ -134,12 +138,8 @@ function Browser({ onLogout }) {
     send({ type: 'dblclick', x, y });
   };
 
-  const handleMouseMove = (e) => {
-    const { x, y } = getCoords(e);
-    send({ type: 'mousemove', x, y });
-  };
-
   const handleWheel = (e) => {
+    e.preventDefault();
     send({ type: 'scroll', deltaX: e.deltaX, deltaY: e.deltaY });
   };
 
@@ -149,11 +149,11 @@ function Browser({ onLogout }) {
     send({ type: 'click', x, y, button: 2 });
   };
 
-  // Keyboard events via hidden input
+  // Keyboard — capture on the transparent overlay
   const handleKeyDown = (e) => {
-    // Don't intercept when typing in URL bar
     if (e.target.classList.contains('url-input')) return;
     e.preventDefault();
+    e.stopPropagation();
     send({ type: 'keydown', key: e.key, code: e.code });
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       send({ type: 'keypress', key: e.key });
@@ -163,8 +163,14 @@ function Browser({ onLogout }) {
   const handleKeyUp = (e) => {
     if (e.target.classList.contains('url-input')) return;
     e.preventDefault();
+    e.stopPropagation();
     send({ type: 'keyup', key: e.key, code: e.code });
   };
+
+  // Keep overlay focused when clicking inside browser area
+  const focusOverlay = useCallback(() => {
+    if (overlayRef.current) overlayRef.current.focus();
+  }, []);
 
   // Navigation
   const navigateTo = (url) => {
@@ -175,7 +181,7 @@ function Browser({ onLogout }) {
   const handleUrlSubmit = (e) => {
     e.preventDefault();
     navigateTo(urlInput);
-    if (inputRef.current) inputRef.current.focus();
+    if (overlayRef.current) overlayRef.current.focus();
   };
 
   const handleLogout = async () => {
@@ -184,7 +190,7 @@ function Browser({ onLogout }) {
   };
 
   return (
-    <div className="browser" onKeyDown={handleKeyDown} onKeyUp={handleKeyUp} tabIndex={-1}>
+    <div className="browser">
       {/* Title Bar */}
       <div className="titlebar">
         <div className="titlebar-traffic">
@@ -280,26 +286,25 @@ function Browser({ onLogout }) {
             </div>
           </div>
         ) : (
-          <canvas
-            ref={canvasRef}
-            className="browser-canvas"
-            onClick={handleClick}
-            onDoubleClick={handleDblClick}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onMouseMove={handleMouseMove}
-            onWheel={handleWheel}
-            onContextMenu={handleContextMenu}
-          />
+          <>
+            <canvas ref={canvasRef} className="browser-canvas" />
+            {/* Transparent overlay captures all mouse + keyboard input */}
+            <div
+              ref={overlayRef}
+              className="input-overlay"
+              tabIndex={0}
+              onMouseDown={handlePointerDown}
+              onMouseUp={handlePointerUp}
+              onMouseMove={handlePointerMove}
+              onDoubleClick={handleDblClick}
+              onWheel={handleWheel}
+              onContextMenu={handleContextMenu}
+              onKeyDown={handleKeyDown}
+              onKeyUp={handleKeyUp}
+              onClick={focusOverlay}
+            />
+          </>
         )}
-        {/* Hidden input for capturing keyboard events */}
-        <input
-          ref={inputRef}
-          className="hidden-input"
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleKeyUp}
-          autoFocus
-        />
       </div>
     </div>
   );

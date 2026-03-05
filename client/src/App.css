@@ -376,15 +376,18 @@
   cursor: default;
   object-fit: contain;
   background: #fff;
+  pointer-events: none;
 }
 
-.hidden-input {
+.input-overlay {
   position: absolute;
-  top: -9999px;
-  left: -9999px;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  z-index: 10;
+  cursor: default;
+  outline: none;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .connection-status {
