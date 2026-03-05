@@ -11,16 +11,12 @@ const PORT = 7799;
 const ACCESS_PASSWORD = process.env.BROWSER_PASSWORD || 'admin123';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
-// Browser viewport
 const VIEW_WIDTH = 1280;
 const VIEW_HEIGHT = 900;
-const FPS = 24;
-const QUALITY = 70;
 
 const app = express();
 const server = http.createServer(app);
 
-// Session setup
 const sessionParser = session({
   secret: SESSION_SECRET,
   resave: false,
@@ -31,11 +27,8 @@ const sessionParser = session({
 app.use(express.json());
 app.use(cors({ origin: true, credentials: true }));
 app.use(sessionParser);
-
-// Serve React build
 app.use(express.static(path.join(__dirname, '..', 'client', 'build')));
 
-// Auth endpoints
 app.post('/api/login', (req, res) => {
   if (req.body.password === ACCESS_PASSWORD) {
     req.session.authenticated = true;
@@ -53,15 +46,14 @@ app.get('/api/auth', (req, res) => {
   res.json({ authenticated: !!(req.session && req.session.authenticated) });
 });
 
-// SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'client', 'build', 'index.html'));
 });
 
-// ======== Puppeteer Browser Instance ========
+// ======== Puppeteer ========
 let browser = null;
 let activePage = null;
-const pages = new Map(); // id -> { page, title, url }
+const pages = new Map(); // id -> { page, cdp, title, url, lastFrame }
 let pageIdCounter = 0;
 
 async function launchBrowser() {
@@ -81,8 +73,7 @@ async function launchBrowser() {
     ],
     defaultViewport: { width: VIEW_WIDTH, height: VIEW_HEIGHT },
   });
-  console.log('🌐 Chromium launched');
-  // Create initial tab
+  console.log('Chromium launched');
   await createNewPage();
 }
 
@@ -94,6 +85,9 @@ async function createNewPage() {
   await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   await page.setViewport({ width: VIEW_WIDTH, height: VIEW_HEIGHT });
 
+  // Get CDP session for screencast
+  const cdp = await page.createCDPSession();
+
   // Track navigation
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) {
@@ -102,19 +96,68 @@ async function createNewPage() {
         entry.url = page.url();
         page.title().then(t => { entry.title = t || entry.url; }).catch(() => {});
         broadcastTabsUpdate();
+        if (id === activePage) broadcastUrl();
       }
     }
   });
 
-  pages.set(id, { page, title: 'New Tab', url: 'about:blank' });
+  // Screencast: Chromium sends frames ONLY when screen changes
+  cdp.on('Page.screencastFrame', (params) => {
+    const entry = pages.get(id);
+    if (!entry) return;
+
+    // Always ack the frame to keep receiving
+    cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
+
+    // Store the latest frame as binary buffer
+    entry.lastFrame = Buffer.from(params.data, 'base64');
+
+    // Only broadcast if this is the active tab
+    if (id === activePage) {
+      broadcastFrame(entry.lastFrame);
+    }
+  });
+
+  pages.set(id, { page, cdp, title: 'New Tab', url: 'about:blank', lastFrame: null });
+
+  // Start screencast for this page
+  await startPageScreencast(id);
+
   activePage = id;
   broadcastTabsUpdate();
+  broadcastUrl();
   return id;
+}
+
+async function startPageScreencast(id) {
+  const entry = pages.get(id);
+  if (!entry) return;
+  try {
+    await entry.cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 65,
+      maxWidth: VIEW_WIDTH,
+      maxHeight: VIEW_HEIGHT,
+      everyNthFrame: 1,
+    });
+  } catch (err) {
+    console.error('Screencast start error:', err.message);
+  }
+}
+
+async function stopPageScreencast(id) {
+  const entry = pages.get(id);
+  if (!entry) return;
+  try {
+    await entry.cdp.send('Page.stopScreencast');
+  } catch {}
 }
 
 async function closePage(id) {
   const entry = pages.get(id);
   if (!entry) return;
+  try { await stopPageScreencast(id); } catch {}
+  try { await entry.cdp.detach(); } catch {}
   try { await entry.page.close(); } catch {}
   pages.delete(id);
 
@@ -122,8 +165,14 @@ async function closePage(id) {
     await createNewPage();
   } else if (activePage === id) {
     activePage = [...pages.keys()][pages.size - 1];
+    broadcastTabsUpdate();
+    broadcastUrl();
+    // Send cached frame of new active tab immediately
+    const newEntry = pages.get(activePage);
+    if (newEntry && newEntry.lastFrame) {
+      broadcastFrame(newEntry.lastFrame);
+    }
   }
-  broadcastTabsUpdate();
 }
 
 function getTabsList() {
@@ -154,9 +203,17 @@ function broadcastUrl() {
   }
 }
 
-// Auth check for WebSocket
+// Send frame as binary (no base64 JSON overhead)
+function broadcastFrame(frameBuffer) {
+  if (!frameBuffer) return;
+  for (const ws of clients) {
+    if (ws.readyState === 1) {
+      ws.send(frameBuffer, { binary: true });
+    }
+  }
+}
+
 wss.on('connection', (ws, req) => {
-  // Parse session from cookies
   const mockRes = { setHeader: () => {}, getHeader: () => null, end: () => {} };
   sessionParser(req, mockRes, () => {
     if (!req.session || !req.session.authenticated) {
@@ -172,15 +229,16 @@ wss.on('connection', (ws, req) => {
     const entry = pages.get(activePage);
     if (entry) {
       ws.send(JSON.stringify({ type: 'urlChange', url: entry.url || '' }));
+      // Send cached frame immediately so client sees something right away
+      if (entry.lastFrame) {
+        ws.send(entry.lastFrame, { binary: true });
+      }
     }
-
-    // Start streaming to this client
-    startStreaming();
 
     ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        await handleClientMessage(msg);
+        await handleClientMessage(msg, ws);
       } catch (err) {
         console.error('WS message error:', err.message);
       }
@@ -189,12 +247,11 @@ wss.on('connection', (ws, req) => {
     ws.on('close', () => {
       clients.delete(ws);
       console.log('Client disconnected, total:', clients.size);
-      if (clients.size === 0) stopStreaming();
     });
   });
 });
 
-// Handle messages from client
+// ======== Handle Input ========
 async function handleClientMessage(msg) {
   const entry = pages.get(activePage);
   if (!entry) return;
@@ -224,50 +281,38 @@ async function handleClientMessage(msg) {
     }
 
     case 'click': {
-      try {
-        await page.mouse.click(msg.x, msg.y, { button: msg.button === 2 ? 'right' : 'left' });
-      } catch {}
+      try { await page.mouse.click(msg.x, msg.y, { button: msg.button === 2 ? 'right' : 'left' }); } catch {}
       break;
     }
 
     case 'dblclick': {
-      try {
-        await page.mouse.click(msg.x, msg.y, { clickCount: 2 });
-      } catch {}
+      try { await page.mouse.click(msg.x, msg.y, { clickCount: 2 }); } catch {}
       break;
     }
 
     case 'mousemove': {
-      try {
-        await page.mouse.move(msg.x, msg.y);
-      } catch {}
+      try { await page.mouse.move(msg.x, msg.y); } catch {}
       break;
     }
 
     case 'mousedown': {
-      try {
-        await page.mouse.down({ button: msg.button === 2 ? 'right' : 'left' });
-      } catch {}
+      try { await page.mouse.down({ button: msg.button === 2 ? 'right' : 'left' }); } catch {}
       break;
     }
 
     case 'mouseup': {
-      try {
-        await page.mouse.up({ button: msg.button === 2 ? 'right' : 'left' });
-      } catch {}
+      try { await page.mouse.up({ button: msg.button === 2 ? 'right' : 'left' }); } catch {}
       break;
     }
 
     case 'scroll': {
-      try {
-        await page.mouse.wheel({ deltaX: msg.deltaX || 0, deltaY: msg.deltaY || 0 });
-      } catch {}
+      try { await page.mouse.wheel({ deltaX: msg.deltaX || 0, deltaY: msg.deltaY || 0 }); } catch {}
       break;
     }
 
     case 'keydown': {
       try {
-        const key = mapKey(msg.key, msg.code);
+        const key = mapKey(msg.key);
         if (key) await page.keyboard.down(key);
       } catch {}
       break;
@@ -275,7 +320,7 @@ async function handleClientMessage(msg) {
 
     case 'keyup': {
       try {
-        const key = mapKey(msg.key, msg.code);
+        const key = mapKey(msg.key);
         if (key) await page.keyboard.up(key);
       } catch {}
       break;
@@ -283,9 +328,7 @@ async function handleClientMessage(msg) {
 
     case 'keypress': {
       try {
-        if (msg.key && msg.key.length === 1) {
-          await page.keyboard.sendCharacter(msg.key);
-        }
+        if (msg.key && msg.key.length === 1) await page.keyboard.sendCharacter(msg.key);
       } catch {}
       break;
     }
@@ -301,10 +344,15 @@ async function handleClientMessage(msg) {
     }
 
     case 'switchTab': {
-      if (pages.has(msg.id)) {
+      if (pages.has(msg.id) && msg.id !== activePage) {
         activePage = msg.id;
         broadcastTabsUpdate();
         broadcastUrl();
+        // Send cached frame of new tab IMMEDIATELY — no wait
+        const newEntry = pages.get(activePage);
+        if (newEntry && newEntry.lastFrame) {
+          broadcastFrame(newEntry.lastFrame);
+        }
       }
       break;
     }
@@ -334,9 +382,16 @@ async function handleClientMessage(msg) {
 
     case 'resize': {
       if (msg.width && msg.height) {
+        const w = Math.round(msg.width);
+        const h = Math.round(msg.height);
         try {
-          for (const [, e] of pages) {
-            await e.page.setViewport({ width: Math.round(msg.width), height: Math.round(msg.height) });
+          // Only resize active page immediately, others on switch
+          const activeEntry = pages.get(activePage);
+          if (activeEntry) {
+            await activeEntry.page.setViewport({ width: w, height: h });
+            // Restart screencast with new dimensions
+            await stopPageScreencast(activePage);
+            await startPageScreencast(activePage);
           }
         } catch {}
       }
@@ -345,8 +400,7 @@ async function handleClientMessage(msg) {
   }
 }
 
-// Key mapping
-function mapKey(key, code) {
+function mapKey(key) {
   const keyMap = {
     'Enter': 'Enter', 'Backspace': 'Backspace', 'Tab': 'Tab',
     'Escape': 'Escape', 'Delete': 'Delete', 'Home': 'Home', 'End': 'End',
@@ -361,36 +415,6 @@ function mapKey(key, code) {
     ' ': 'Space',
   };
   return keyMap[key] || (key && key.length === 1 ? key : null);
-}
-
-// ======== Screencasting ========
-let streamInterval = null;
-
-function startStreaming() {
-  if (streamInterval) return;
-  streamInterval = setInterval(async () => {
-    if (clients.size === 0) return;
-    const entry = pages.get(activePage);
-    if (!entry) return;
-    try {
-      const screenshot = await entry.page.screenshot({
-        type: 'jpeg',
-        quality: QUALITY,
-        encoding: 'base64',
-      });
-      const msg = JSON.stringify({ type: 'frame', data: screenshot });
-      for (const ws of clients) {
-        if (ws.readyState === 1) ws.send(msg);
-      }
-    } catch {}
-  }, 1000 / FPS);
-}
-
-function stopStreaming() {
-  if (streamInterval) {
-    clearInterval(streamInterval);
-    streamInterval = null;
-  }
 }
 
 // ======== Start ========

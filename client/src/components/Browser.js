@@ -41,34 +41,26 @@ function Browser({ onLogout }) {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}`);
+    ws.binaryType = 'blob';
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
     ws.onclose = () => {
       setConnected(false);
-      // Try reconnect after 2s
       setTimeout(() => {
-        if (wsRef.current === ws) {
-          window.location.reload();
-        }
+        if (wsRef.current === ws) window.location.reload();
       }, 2000);
     };
 
     ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      switch (msg.type) {
-        case 'frame':
-          setFrame('data:image/jpeg;base64,' + msg.data);
-          break;
-        case 'tabs':
-          setTabs(msg.tabs);
-          break;
-        case 'urlChange':
-          setCurrentUrl(msg.url || '');
-          setUrlInput(msg.url || '');
-          break;
-        default:
-          break;
+      // Binary = frame image, Text = JSON control message
+      if (e.data instanceof Blob) {
+        const url = URL.createObjectURL(e.data);
+        setFrame(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
+      } else {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'tabs') setTabs(msg.tabs);
+        else if (msg.type === 'urlChange') { setCurrentUrl(msg.url || ''); setUrlInput(msg.url || ''); }
       }
     };
 
