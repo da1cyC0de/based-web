@@ -88,14 +88,45 @@ function Browser({ onLogout }) {
     return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
   };
 
-  const handleClick = (e) => { e.preventDefault(); overlayRef.current?.focus(); const { x, y } = getCoords(e); send({ type: 'click', x, y, button: e.button }); };
+  const handlePointerDown = (e) => {
+    e.preventDefault();
+    overlayRef.current?.focus();
+    const { x, y } = getCoords(e);
+    send({ type: 'mousedown', x, y, button: e.button });
+  };
+  const handlePointerUp = (e) => {
+    e.preventDefault();
+    const { x, y } = getCoords(e);
+    send({ type: 'mouseup', x, y, button: e.button });
+  };
   const handleDblClick = (e) => { e.preventDefault(); const { x, y } = getCoords(e); send({ type: 'dblclick', x, y }); };
 
   const lastMoveRef = useRef(0);
-  const handleMove = (e) => { const now = Date.now(); if (now - lastMoveRef.current < 66) return; lastMoveRef.current = now; const { x, y } = getCoords(e); send({ type: 'mousemove', x, y }); };
+  const handleMove = (e) => { const now = Date.now(); if (now - lastMoveRef.current < 50) return; lastMoveRef.current = now; const { x, y } = getCoords(e); send({ type: 'mousemove', x, y }); };
 
   const handleWheel = (e) => { e.preventDefault(); send({ type: 'scroll', deltaX: e.deltaX, deltaY: e.deltaY }); };
-  const handleCtx = (e) => { e.preventDefault(); const { x, y } = getCoords(e); send({ type: 'click', x, y, button: 2 }); };
+  const handleCtx = (e) => { e.preventDefault(); };
+
+  // Touch support for mobile
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    overlayRef.current?.focus();
+    const t = e.touches[0];
+    const { x, y } = getCoords(t);
+    send({ type: 'mousedown', x, y, button: 0 });
+  };
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const { x, y } = getCoords(t);
+    send({ type: 'mouseup', x, y, button: 0 });
+  };
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    const { x, y } = getCoords(t);
+    send({ type: 'mousemove', x, y });
+  };
 
   const handleKeyDown = (e) => {
     if (e.target.classList.contains('url-input')) return;
@@ -154,8 +185,11 @@ function Browser({ onLogout }) {
           <>
             <canvas ref={canvasRef} className="cv" />
             <div ref={overlayRef} className="ov" tabIndex={0}
-              onClick={handleClick} onMouseMove={handleMove} onDoubleClick={handleDblClick}
-              onWheel={handleWheel} onContextMenu={handleCtx} onKeyDown={handleKeyDown} onKeyUp={handleKeyUp} />
+              onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}
+              onMouseMove={handleMove} onDoubleClick={handleDblClick}
+              onWheel={handleWheel} onContextMenu={handleCtx}
+              onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchMove={handleTouchMove}
+              onKeyDown={handleKeyDown} onKeyUp={handleKeyUp} />
           </>
         )}
       </div>

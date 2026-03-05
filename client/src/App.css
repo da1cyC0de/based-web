@@ -48,7 +48,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* View */
 .view { flex: 1; overflow: hidden; position: relative; background: #000; }
-.cv { width: 100%; height: 100%; display: block; object-fit: contain; pointer-events: none; background: #000; }
+.cv { width: 100%; height: 100%; display: block; pointer-events: none; background: #000; }
 .ov { position: absolute; inset: 0; z-index: 10; cursor: default; outline: none; background: transparent; user-select: none; -webkit-user-select: none; }
 
 /* Home */

@@ -135,10 +135,10 @@ async function startPageScreencast(id) {
   try {
     await entry.cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 50,
+      quality: 60,
       maxWidth: VIEW_WIDTH,
       maxHeight: VIEW_HEIGHT,
-      everyNthFrame: 2,
+      everyNthFrame: 1,
     });
   } catch (err) {
     console.error('Screencast start error:', err.message);
@@ -280,10 +280,19 @@ async function handleClientMessage(msg) {
       break;
     }
 
-    case 'click': {
+    case 'mousedown': {
       try {
+        const btn = msg.button === 2 ? 'right' : 'left';
         await page.mouse.move(msg.x, msg.y);
-        await page.mouse.click(msg.x, msg.y, { button: msg.button === 2 ? 'right' : 'left', delay: 50 });
+        await page.mouse.down({ button: btn });
+      } catch {}
+      break;
+    }
+
+    case 'mouseup': {
+      try {
+        const btn = msg.button === 2 ? 'right' : 'left';
+        await page.mouse.up({ button: btn });
       } catch {}
       break;
     }
@@ -291,7 +300,7 @@ async function handleClientMessage(msg) {
     case 'dblclick': {
       try {
         await page.mouse.move(msg.x, msg.y);
-        await page.mouse.click(msg.x, msg.y, { clickCount: 2, delay: 50 });
+        await page.mouse.click(msg.x, msg.y, { clickCount: 2 });
       } catch {}
       break;
     }
