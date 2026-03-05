@@ -256,6 +256,7 @@ async function handleClientMessage(msg) {
   const entry = pages.get(activePage);
   if (!entry) return;
   const page = entry.page;
+  const cdp = entry.cdp;
 
   switch (msg.type) {
     case 'navigate': {
@@ -283,8 +284,13 @@ async function handleClientMessage(msg) {
     case 'mousedown': {
       try {
         const btn = msg.button === 2 ? 'right' : 'left';
-        await page.mouse.move(msg.x, msg.y);
-        await page.mouse.down({ button: btn });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: msg.x, y: msg.y, button: 'none',
+        });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: msg.x, y: msg.y, button: btn,
+          clickCount: 1, buttons: btn === 'left' ? 1 : 2,
+        });
       } catch {}
       break;
     }
@@ -292,26 +298,44 @@ async function handleClientMessage(msg) {
     case 'mouseup': {
       try {
         const btn = msg.button === 2 ? 'right' : 'left';
-        await page.mouse.up({ button: btn });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: msg.x, y: msg.y, button: btn,
+          clickCount: 1,
+        });
       } catch {}
       break;
     }
 
     case 'dblclick': {
       try {
-        await page.mouse.move(msg.x, msg.y);
-        await page.mouse.click(msg.x, msg.y, { clickCount: 2 });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: msg.x, y: msg.y, button: 'left',
+          clickCount: 2, buttons: 1,
+        });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: msg.x, y: msg.y, button: 'left',
+          clickCount: 2,
+        });
       } catch {}
       break;
     }
 
     case 'mousemove': {
-      try { await page.mouse.move(msg.x, msg.y); } catch {}
+      try {
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: msg.x, y: msg.y, button: 'none',
+        });
+      } catch {}
       break;
     }
 
     case 'scroll': {
-      try { await page.mouse.wheel({ deltaX: msg.deltaX || 0, deltaY: msg.deltaY || 0 }); } catch {}
+      try {
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseWheel', x: msg.x || 0, y: msg.y || 0,
+          deltaX: msg.deltaX || 0, deltaY: msg.deltaY || 0,
+        });
+      } catch {}
       break;
     }
 

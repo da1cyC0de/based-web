@@ -66,11 +66,18 @@ function Browser({ onLogout }) {
     img.src = frame;
   }, [frame]);
 
+  // Send viewport size on resize (use integer device pixels)
+  const vpRef = useRef({ w: 0, h: 0 });
   useEffect(() => {
     const onResize = () => {
       if (viewRef.current) {
         const r = viewRef.current.getBoundingClientRect();
-        send({ type: 'resize', width: r.width, height: r.height });
+        const w = Math.round(r.width);
+        const h = Math.round(r.height);
+        if (w !== vpRef.current.w || h !== vpRef.current.h) {
+          vpRef.current = { w, h };
+          send({ type: 'resize', width: w, height: h });
+        }
       }
     };
     onResize();
@@ -78,14 +85,18 @@ function Browser({ onLogout }) {
     return () => window.removeEventListener('resize', onResize);
   }, [send, connected]);
 
+  // Coordinates: map click position to server viewport
   const getCoords = (e) => {
     const el = viewRef.current;
     if (!el) return { x: 0, y: 0 };
     const rect = el.getBoundingClientRect();
-    const c = canvasRef.current;
-    const sx = (c ? c.width : rect.width) / rect.width;
-    const sy = (c ? c.height : rect.height) / rect.height;
-    return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
+    // Use viewport dimensions we sent to server (vpRef), not canvas
+    const vw = vpRef.current.w || rect.width;
+    const vh = vpRef.current.h || rect.height;
+    return {
+      x: Math.round((e.clientX - rect.left) / rect.width * vw),
+      y: Math.round((e.clientY - rect.top) / rect.height * vh),
+    };
   };
 
   const handlePointerDown = (e) => {
@@ -104,7 +115,7 @@ function Browser({ onLogout }) {
   const lastMoveRef = useRef(0);
   const handleMove = (e) => { const now = Date.now(); if (now - lastMoveRef.current < 50) return; lastMoveRef.current = now; const { x, y } = getCoords(e); send({ type: 'mousemove', x, y }); };
 
-  const handleWheel = (e) => { e.preventDefault(); send({ type: 'scroll', deltaX: e.deltaX, deltaY: e.deltaY }); };
+  const handleWheel = (e) => { e.preventDefault(); const { x, y } = getCoords(e); send({ type: 'scroll', x, y, deltaX: e.deltaX, deltaY: e.deltaY }); };
   const handleCtx = (e) => { e.preventDefault(); };
 
   // Touch support for mobile
@@ -123,6 +134,9 @@ function Browser({ onLogout }) {
   };
   const handleTouchMove = (e) => {
     e.preventDefault();
+    const now = Date.now();
+    if (now - lastMoveRef.current < 50) return;
+    lastMoveRef.current = now;
     const t = e.touches[0];
     const { x, y } = getCoords(t);
     send({ type: 'mousemove', x, y });
